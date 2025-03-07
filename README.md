@@ -24,3 +24,5 @@ Inside your project repository root, add `wf` dependency.
 ```bash
 go get -u github.com/hyisen/wf
 ```
+
+Take a look over /examples to find how to use `wf`.
