@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	. "github.com/hyisen/wf"
 	"log"
 	"net/http"
-	. "wf"
 )
 
 type Request struct {

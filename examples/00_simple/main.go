@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	. "github.com/hyisen/wf"
 	"log"
 	"net/http"
 	"time"
-	. "wf"
 )
 
 type Request struct {

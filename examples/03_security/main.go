@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	. "github.com/hyisen/wf"
 	"log"
 	"net/http"
-	. "wf"
 )
 
 func valid(token string) bool {

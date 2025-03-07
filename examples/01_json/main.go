@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	. "github.com/hyisen/wf"
 	"log"
 	"net/http"
 	"reflect"
 	"time"
-	. "wf"
 )
 
 type Request struct {
