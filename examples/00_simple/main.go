@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 	. "wf"
 )
 
@@ -21,6 +22,7 @@ func WithPath(data []byte, path string) (any, error) {
 }
 
 func main() {
+	SetTimeout(100 * time.Millisecond) // 100ms is long enough for local dev
 	handler := &ClosureHandler{
 		// Matcher is under which circumstance the handler would be assigned for dispatch.
 		Matcher: Exact(http.MethodGet, "/echo"),

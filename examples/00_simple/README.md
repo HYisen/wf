@@ -1,5 +1,10 @@
 # Example Simple
 
+## Tools
+
+Optionally, `SetTimeout` could be used to override the global timeout context,
+which preventing further potential procedures such as IO.
+
 ## Usage
 
 Start service. Shall block, not return with error messages such as port already in use.
