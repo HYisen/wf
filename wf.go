@@ -142,10 +142,6 @@ func (ch *ClosureHandler) Response(output HandleOutputType, writer http.Response
 	_, _ = writer.Write(outputData)
 }
 
-func (ch *ClosureHandler) Stream() bool {
-	return ch.formatter == nil
-}
-
 const JSONContentType = "application/json; charset=utf-8"
 
 func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleFunc) *ClosureHandler {
