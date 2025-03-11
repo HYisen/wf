@@ -97,25 +97,25 @@ func ResourceWithID(method string, pathPrefixWithTailSlash string, pathSuffixWit
 
 type HandleFunc func(ctx context.Context, req any) (rsp any, codedError *CodedError)
 
-type ClosureMatcherAndParser struct {
-	Matcher MatchFunc
-	Parser  func(data []byte, path string) (any, error)
+type closureMatcherAndParser struct {
+	matcher MatchFunc
+	parser  func(data []byte, path string) (any, error)
 }
 
-func (c *ClosureMatcherAndParser) Match(req *http.Request) bool {
-	return c.Matcher(req)
+func (c *closureMatcherAndParser) Match(req *http.Request) bool {
+	return c.matcher(req)
 }
 
-func (c *ClosureMatcherAndParser) Parse(data []byte, path string) (any, error) {
-	return c.Parser(data, path)
+func (c *closureMatcherAndParser) Parse(data []byte, path string) (any, error) {
+	return c.parser(data, path)
 }
 
 // ClosureHandler is something that implements Handler with closures.
 type ClosureHandler struct {
-	ClosureMatcherAndParser
-	Handler     HandleFunc
-	Formatter   func(output any) (data []byte, err error)
-	ContentType string
+	closureMatcherAndParser
+	handler     HandleFunc
+	formatter   func(output any) (data []byte, err error)
+	contentType string
 }
 
 func NewClosureHandler(
@@ -125,10 +125,10 @@ func NewClosureHandler(
 	formatter func(output any) (data []byte, err error),
 	contentType string,
 ) *ClosureHandler {
-	return &ClosureHandler{ClosureMatcherAndParser: ClosureMatcherAndParser{
-		Matcher: matcher,
-		Parser:  parser,
-	}, Handler: handler, Formatter: formatter, ContentType: contentType}
+	return &ClosureHandler{closureMatcherAndParser: closureMatcherAndParser{
+		matcher: matcher,
+		parser:  parser,
+	}, handler: handler, formatter: formatter, contentType: contentType}
 }
 
 func (ch *ClosureHandler) Response(output HandleOutputType, writer http.ResponseWriter) {
@@ -143,42 +143,42 @@ func (ch *ClosureHandler) Response(output HandleOutputType, writer http.Response
 }
 
 func (ch *ClosureHandler) Stream() bool {
-	return ch.Formatter == nil
+	return ch.formatter == nil
 }
 
 const JSONContentType = "application/json; charset=utf-8"
 
 func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleFunc) *ClosureHandler {
 	return &ClosureHandler{
-		ClosureMatcherAndParser: ClosureMatcherAndParser{
-			Matcher: matcher,
-			Parser:  JSONParser(requestType),
+		closureMatcherAndParser: closureMatcherAndParser{
+			matcher: matcher,
+			parser:  JSONParser(requestType),
 		},
-		Handler:     handler,
-		Formatter:   json.Marshal,
-		ContentType: JSONContentType,
+		handler:     handler,
+		formatter:   json.Marshal,
+		contentType: JSONContentType,
 	}
 }
 
 func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler StreamGenerator) *ServerSentEventsHandler {
 	return &ServerSentEventsHandler{
-		ClosureMatcherAndParser: ClosureMatcherAndParser{
-			Matcher: matcher,
-			Parser:  parser,
+		closureMatcherAndParser: closureMatcherAndParser{
+			matcher: matcher,
+			parser:  parser,
 		},
-		Handler: handler,
+		handler: handler,
 	}
 }
 
 type StreamGenerator func(ctx context.Context, req any) (ch <-chan MessageEvent, codedError *CodedError)
 
 type ServerSentEventsHandler struct {
-	ClosureMatcherAndParser
-	Handler StreamGenerator
+	closureMatcherAndParser
+	handler StreamGenerator
 }
 
 func (h *ServerSentEventsHandler) Handle(ctx context.Context, req any) (HandleOutputType, *CodedError) {
-	return h.Handler(ctx, req)
+	return h.handler(ctx, req)
 }
 
 func (h *ServerSentEventsHandler) Response(output HandleOutputType, writer http.ResponseWriter) {
@@ -227,15 +227,15 @@ func (ch *ClosureHandler) Handle(
 	ctx context.Context,
 	req any,
 ) (rsp HandleOutputType, codedError *CodedError) {
-	return ch.Handler(ctx, req)
+	return ch.handler(ctx, req)
 }
 
 func (ch *ClosureHandler) Format(output any) (data []byte, err error) {
-	return ch.Formatter(output)
+	return ch.formatter(output)
 }
 
 func (ch *ClosureHandler) ResponseContentType() string {
-	return ch.ContentType
+	return ch.contentType
 }
 
 // Web is a helper to implements http.Handler as mux.
