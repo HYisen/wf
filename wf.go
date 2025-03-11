@@ -34,6 +34,7 @@ type Handler interface {
 	Match(req *http.Request) bool
 	Parse(data []byte, path string) (any, error)
 	Handle(ctx context.Context, req any) (rsp any, codedError *CodedError)
+	Stream() bool
 	Format(output any) (data []byte, err error)
 	ResponseContentType() string // could use http.DetectContentType as default, which finds JSON as text/plain.
 }
@@ -78,6 +79,10 @@ type ClosureHandler struct {
 	ContentType string
 }
 
+func (ch *ClosureHandler) Stream() bool {
+	return ch.Formatter == nil
+}
+
 const JSONContentType = "application/json; charset=utf-8"
 
 func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleFunc) *ClosureHandler {
@@ -88,6 +93,35 @@ func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleF
 		Formatter:   json.Marshal,
 		ContentType: JSONContentType,
 	}
+}
+
+// NewServerSentEventsHandler generates it. handler HandleFunc MUST match type StreamGenerator.
+func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler HandleFunc) *ClosureHandler {
+	return &ClosureHandler{
+		Matcher:     matcher,
+		Parser:      parser,
+		Handler:     handler,
+		Formatter:   nil,
+		ContentType: "text/event-stream",
+	}
+}
+
+type StreamGenerator func(ctx context.Context, req any) (ch <-chan MessageEvent, codedError *CodedError)
+
+// MessageEvent represents a Server-Sent-Event.
+// While transmitting, if TypeOptional is empty string "",
+// a typed event would be generated, otherwise unnamed message.
+// While transmitting, each item of Lines would gain prefix `data: `,
+// and every item must not include LF.
+//
+// According to the spec, when client parse MessageEvent, should concatenate lines,
+// inserting a newline character between each one. Trailing newlines are removed.
+//
+// ref https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
+// ref https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage
+type MessageEvent struct {
+	TypeOptional string
+	Lines        []string
 }
 
 // Empty types used on JSONParser indicates that no data and shall use ParseEmpty.
@@ -217,14 +251,36 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	outputData, err := h.Format(output)
-	if err != nil {
-		slog.Error("unexpected failure on marshal", "err", err)
-		writer.WriteHeader(http.StatusInternalServerError)
-		return
+	if !h.Stream() {
+		outputData, err := h.Format(output)
+		if err != nil {
+			slog.Error("unexpected failure on marshal", "err", err)
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Content-Type", h.ResponseContentType())
+		_, _ = writer.Write(outputData)
+	} else {
+		writer.Header().Set("Content-Type", h.ResponseContentType())
+		writer.Header().Set("Cache-Control", "no-cache")
+		writer.Header().Set("Connection", "keep-alive")
+		ch := output.(<-chan MessageEvent)
+		rc := http.NewResponseController(writer)
+		for me := range ch {
+			// I could, but I don't record write failure, because I haven't.
+			if me.TypeOptional != "" {
+				_, _ = fmt.Fprintf(writer, "event: %s\n", me.TypeOptional)
+			}
+			for _, line := range me.Lines {
+				_, _ = fmt.Fprintf(writer, "data: %s\n", line)
+			}
+			_, _ = fmt.Fprintln(writer)
+			if err := rc.Flush(); err != nil {
+				slog.Error("unexpected failure on flush", "err", err)
+				return
+			}
+		}
 	}
-	writer.Header().Set("Content-Type", h.ResponseContentType())
-	_, _ = writer.Write(outputData)
 }
 
 func IsUserFault(httpStatusCode int) bool {
