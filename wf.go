@@ -31,11 +31,37 @@ func (e CodedError) Error() string {
 }
 
 type Handler interface {
+	CanMatch
+	CanParse
+	CanHandle
+	CanResponse
+}
+
+type CanMatch interface {
 	Match(req *http.Request) bool
+}
+
+type CanParse interface {
 	Parse(data []byte, path string) (any, error)
-	Handle(ctx context.Context, req any) (rsp any, codedError *CodedError)
-	Stream() bool
+}
+
+type HandleOutputType any
+
+type CanHandle interface {
+	Handle(ctx context.Context, req any) (HandleOutputType, *CodedError)
+}
+
+type CanResponse interface {
+	// Response does not return err, as we can not respond with error if Response fails.
+	// Now that the only thing we can do is log, we can log inside rather than pass out and do it outside.
+	Response(output HandleOutputType, writer http.ResponseWriter)
+}
+
+type CanFormat interface {
 	Format(output any) (data []byte, err error)
+}
+
+type HasResponseContentType interface {
 	ResponseContentType() string // could use http.DetectContentType as default, which finds JSON as text/plain.
 }
 
@@ -71,12 +97,49 @@ func ResourceWithID(method string, pathPrefixWithTailSlash string, pathSuffixWit
 
 type HandleFunc func(ctx context.Context, req any) (rsp any, codedError *CodedError)
 
+type ClosureMatcherAndParser struct {
+	Matcher MatchFunc
+	Parser  func(data []byte, path string) (any, error)
+}
+
+func (c *ClosureMatcherAndParser) Match(req *http.Request) bool {
+	return c.Matcher(req)
+}
+
+func (c *ClosureMatcherAndParser) Parse(data []byte, path string) (any, error) {
+	return c.Parser(data, path)
+}
+
+// ClosureHandler is something that implements Handler with closures.
 type ClosureHandler struct {
-	Matcher     MatchFunc
-	Parser      func(data []byte, path string) (any, error)
+	ClosureMatcherAndParser
 	Handler     HandleFunc
 	Formatter   func(output any) (data []byte, err error)
 	ContentType string
+}
+
+func NewClosureHandler(
+	matcher MatchFunc,
+	parser ParseFunc,
+	handler HandleFunc,
+	formatter func(output any) (data []byte, err error),
+	contentType string,
+) *ClosureHandler {
+	return &ClosureHandler{ClosureMatcherAndParser: ClosureMatcherAndParser{
+		Matcher: matcher,
+		Parser:  parser,
+	}, Handler: handler, Formatter: formatter, ContentType: contentType}
+}
+
+func (ch *ClosureHandler) Response(output HandleOutputType, writer http.ResponseWriter) {
+	outputData, err := ch.Format(output)
+	if err != nil {
+		slog.Error("unexpected failure on marshal", "err", err)
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Set("Content-Type", ch.ResponseContentType())
+	_, _ = writer.Write(outputData)
 }
 
 func (ch *ClosureHandler) Stream() bool {
@@ -87,26 +150,58 @@ const JSONContentType = "application/json; charset=utf-8"
 
 func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleFunc) *ClosureHandler {
 	return &ClosureHandler{
-		Matcher:     matcher,
-		Parser:      JSONParser(requestType),
+		ClosureMatcherAndParser: ClosureMatcherAndParser{
+			Matcher: matcher,
+			Parser:  JSONParser(requestType),
+		},
 		Handler:     handler,
 		Formatter:   json.Marshal,
 		ContentType: JSONContentType,
 	}
 }
 
-// NewServerSentEventsHandler generates it. handler HandleFunc MUST match type StreamGenerator.
-func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler HandleFunc) *ClosureHandler {
-	return &ClosureHandler{
-		Matcher:     matcher,
-		Parser:      parser,
-		Handler:     handler,
-		Formatter:   nil,
-		ContentType: "text/event-stream",
+func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler StreamGenerator) *ServerSentEventsHandler {
+	return &ServerSentEventsHandler{
+		ClosureMatcherAndParser: ClosureMatcherAndParser{
+			Matcher: matcher,
+			Parser:  parser,
+		},
+		Handler: handler,
 	}
 }
 
 type StreamGenerator func(ctx context.Context, req any) (ch <-chan MessageEvent, codedError *CodedError)
+
+type ServerSentEventsHandler struct {
+	ClosureMatcherAndParser
+	Handler StreamGenerator
+}
+
+func (h *ServerSentEventsHandler) Handle(ctx context.Context, req any) (HandleOutputType, *CodedError) {
+	return h.Handler(ctx, req)
+}
+
+func (h *ServerSentEventsHandler) Response(output HandleOutputType, writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "text/event-stream")
+	writer.Header().Set("Cache-Control", "no-cache")
+	writer.Header().Set("Connection", "keep-alive")
+	ch := output.(<-chan MessageEvent)
+	rc := http.NewResponseController(writer)
+	for me := range ch {
+		// I could, but I don't record write failure, because I haven't.
+		if me.TypeOptional != "" {
+			_, _ = fmt.Fprintf(writer, "event: %s\n", me.TypeOptional)
+		}
+		for _, line := range me.Lines {
+			_, _ = fmt.Fprintf(writer, "data: %s\n", line)
+		}
+		_, _ = fmt.Fprintln(writer)
+		if err := rc.Flush(); err != nil {
+			slog.Error("unexpected failure on flush", "err", err)
+			return
+		}
+	}
+}
 
 // MessageEvent represents a Server-Sent-Event.
 // While transmitting, if TypeOptional is empty string "",
@@ -128,18 +223,10 @@ type MessageEvent struct {
 type Empty struct {
 }
 
-func (ch *ClosureHandler) Match(req *http.Request) bool {
-	return ch.Matcher(req)
-}
-
-func (ch *ClosureHandler) Parse(data []byte, path string) (any, error) {
-	return ch.Parser(data, path)
-}
-
 func (ch *ClosureHandler) Handle(
 	ctx context.Context,
 	req any,
-) (rsp any, codedError *CodedError) {
+) (rsp HandleOutputType, codedError *CodedError) {
 	return ch.Handler(ctx, req)
 }
 
@@ -250,37 +337,7 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte(e.Err.Error()))
 		return
 	}
-
-	if !h.Stream() {
-		outputData, err := h.Format(output)
-		if err != nil {
-			slog.Error("unexpected failure on marshal", "err", err)
-			writer.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		writer.Header().Set("Content-Type", h.ResponseContentType())
-		_, _ = writer.Write(outputData)
-	} else {
-		writer.Header().Set("Content-Type", h.ResponseContentType())
-		writer.Header().Set("Cache-Control", "no-cache")
-		writer.Header().Set("Connection", "keep-alive")
-		ch := output.(<-chan MessageEvent)
-		rc := http.NewResponseController(writer)
-		for me := range ch {
-			// I could, but I don't record write failure, because I haven't.
-			if me.TypeOptional != "" {
-				_, _ = fmt.Fprintf(writer, "event: %s\n", me.TypeOptional)
-			}
-			for _, line := range me.Lines {
-				_, _ = fmt.Fprintf(writer, "data: %s\n", line)
-			}
-			_, _ = fmt.Fprintln(writer)
-			if err := rc.Flush(); err != nil {
-				slog.Error("unexpected failure on flush", "err", err)
-				return
-			}
-		}
-	}
+	h.Response(output, writer)
 }
 
 func IsUserFault(httpStatusCode int) bool {
@@ -321,7 +378,7 @@ func PathIDParser(pathSuffixWithHeadSlashNullable string) ParseFunc {
 			}
 			path = rest
 		}
-		// The Matcher shall have guaranteed a valid number here. So we can skip validation here.
+		// The CanMatch shall have guaranteed a valid number here. So we can skip validation here.
 		str := path[strings.LastIndexByte(path, '/')+1:]
 		num, _ := strconv.Atoi(str)
 		return num, nil

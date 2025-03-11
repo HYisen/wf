@@ -23,24 +23,23 @@ func WithPath(data []byte, path string) (any, error) {
 
 func main() {
 	SetTimeout(100 * time.Millisecond) // 100ms is long enough for local dev
-	handler := &ClosureHandler{
+	handler := NewClosureHandler(
 		// Matcher is under which circumstance the handler would be assigned for dispatch.
-		Matcher: Exact(http.MethodGet, "/echo"),
+		Exact(http.MethodGet, "/echo"),
 		// Parser is how the handler would extract data from payload and path in request.
-		Parser: WithPath,
+		WithPath,
 		// Handler is how the handler maps Request to Response, or error.
-		Handler: func(_ context.Context, req any) (rsp any, codedError *CodedError) {
+		func(_ context.Context, req any) (rsp any, codedError *CodedError) {
 			r := req.(Request)
 			msg := fmt.Sprintf("path=%s\ndata=%v", r.Path, r.Data)
 			return msg, nil
 		},
 		// Formatter is how handler encodes response value to bytes.
-		Formatter: func(output any) (data []byte, err error) {
+		func(output any) (data []byte, err error) {
 			return []byte(output.(string)), nil
 		},
 		// ContentType is that in HTTP response Header.
-		ContentType: "text/plain",
-	}
+		"text/plain")
 	web := NewWeb(false, handler)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)

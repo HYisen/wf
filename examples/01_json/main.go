@@ -31,9 +31,9 @@ func main() {
 			return Response{Message: msg, Timestamp: time.Now()}, nil
 		},
 	)
-	semi := &ClosureHandler{
-		Matcher: Exact(http.MethodPost, "/v1/semi"),
-		Parser: func(data []byte, path string) (any, error) {
+	semi := NewClosureHandler(
+		Exact(http.MethodPost, "/v1/semi"),
+		func(data []byte, path string) (any, error) {
 			var req Request
 			if err := json.Unmarshal(data, &req); err != nil {
 				return nil, err
@@ -41,14 +41,14 @@ func main() {
 			// WATCH OUT, it's pointer return type!
 			return &req, nil
 		},
-		Handler: func(_ context.Context, req any) (rsp any, codedError *CodedError) {
+		func(_ context.Context, req any) (rsp any, codedError *CodedError) {
 			r := req.(*Request)
 			msg := fmt.Sprintf("[semi]%+v", r)
 			return Response{Message: msg, Timestamp: time.Now()}, nil
 		},
-		Formatter:   json.Marshal,
-		ContentType: JSONContentType,
-	}
+		json.Marshal,
+		JSONContentType,
+	)
 	web := NewWeb(false, whole, semi)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)

@@ -20,22 +20,18 @@ func main() {
 	handler := wf.NewServerSentEventsHandler(
 		wf.Exact(http.MethodPost, "/events"),
 		wf.ParseEmpty,
-		func(ctx context.Context, _ any) (rsp any, codedError *wf.CodedError) {
+		func(ctx context.Context, req any) (<-chan wf.MessageEvent, *wf.CodedError) {
 			ch := make(chan wf.MessageEvent)
 			ticker := time.NewTicker(time.Second)
 			slog.Info("start")
 			go pass(ctx, ch, ticker)
-			return cast(ch), nil
+			return ch, nil
 		},
 	)
 	web := wf.NewWeb(false, handler)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func cast(ch chan wf.MessageEvent) <-chan wf.MessageEvent {
-	return ch
 }
 
 func pass(ctx context.Context, ch chan<- wf.MessageEvent, ticker *time.Ticker) {

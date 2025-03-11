@@ -13,10 +13,10 @@ func valid(token string) bool {
 }
 
 func main() {
-	handler := &ClosureHandler{
-		Matcher: Exact(http.MethodPost, "/v1/vital"),
-		Parser:  ParseEmpty,
-		Handler: func(ctx context.Context, req any) (rsp any, codedError *CodedError) {
+	handler := NewClosureHandler(
+		Exact(http.MethodPost, "/v1/vital"),
+		ParseEmpty,
+		func(ctx context.Context, req any) (rsp any, codedError *CodedError) {
 			token := DetachToken(ctx)
 			if token == "" {
 				return nil, NewCodedError(http.StatusUnauthorized, errors.New("need token"))
@@ -26,9 +26,9 @@ func main() {
 			}
 			return nil, nil
 		},
-		Formatter:   FormatEmpty,
-		ContentType: "text/plain",
-	}
+		FormatEmpty,
+		"text/plain",
+	)
 	web := NewWeb(false, handler)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)
