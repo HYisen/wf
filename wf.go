@@ -110,7 +110,7 @@ type HandleFunc func(ctx context.Context, req any) (rsp any, codedError *CodedEr
 
 type closureMatcherAndParser struct {
 	matcher MatchFunc
-	parser  func(data []byte, path string) (any, error)
+	parser  ParseFunc
 }
 
 func (c *closureMatcherAndParser) Match(req *http.Request) bool {
