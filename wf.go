@@ -67,6 +67,17 @@ type HasResponseContentType interface {
 
 type MatchFunc func(req *http.Request) bool
 
+func MatchAll(criteria ...MatchFunc) MatchFunc {
+	return func(req *http.Request) bool {
+		for _, criterion := range criteria {
+			if !criterion(req) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 func Exact(method string, path string) MatchFunc {
 	return func(req *http.Request) bool {
 		return req.URL.Path == path && req.Method == method
