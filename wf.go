@@ -106,6 +106,48 @@ func ResourceWithID(method string, pathPrefixWithTailSlash string, pathSuffixWit
 	}
 }
 
+func ResourceWithIDs(method string, parts []string) (MatchFunc, ParseFunc) {
+	mh := func(req *http.Request) bool {
+		if req.Method != method {
+			return false
+		}
+		// As I tested, whether Path contains prefix or suffix slash could depend on whether rawURL have them.
+		// To avoid difference on their existence, I trim before split.
+		subs := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+		if len(subs) != len(parts) {
+			return false
+		}
+		for i, part := range parts {
+			if part != "" {
+				if part != subs[i] {
+					return false
+				}
+			} else {
+				if _, err := strconv.Atoi(subs[i]); err != nil {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	pf := func(_ []byte, path string) (req any, err error) {
+		// The implementation of pf is highly bound with mh.
+		// We don't handle situations that won't happen. e.g.,
+		// len(subs) != len(parts) or Atoi failure is asserted in mh.
+		var ret []int
+		subs := strings.Split(strings.Trim(path, "/"), "/")
+		for i, part := range parts {
+			if part != "" {
+				continue
+			}
+			num, _ := strconv.Atoi(subs[i])
+			ret = append(ret, num)
+		}
+		return ret, nil
+	}
+	return mh, pf
+}
+
 type HandleFunc func(ctx context.Context, req any) (rsp any, codedError *CodedError)
 
 type closureMatcherAndParser struct {

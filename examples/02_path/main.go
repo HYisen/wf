@@ -57,7 +57,13 @@ func main() {
 		JSONContentType,
 	)
 
-	web := NewWeb(false, simple, comprehensive)
+	mf, pf := ResourceWithIDs(http.MethodGet, []string{"v1", "users", "", "items", ""})
+	complicated := NewClosureHandler(mf, pf, func(_ context.Context, req any) (rsp any, codedError *CodedError) {
+		ids := req.([]int)
+		return ids, nil
+	}, json.Marshal, JSONContentType)
+
+	web := NewWeb(false, simple, comprehensive, complicated)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)
 	}
