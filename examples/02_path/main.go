@@ -63,7 +63,20 @@ func main() {
 		return ids, nil
 	}, json.Marshal, JSONContentType)
 
-	web := NewWeb(false, simple, comprehensive, complicated)
+	combined := NewClosureHandler(
+		MatchAll(
+			Exact(http.MethodGet, "/v1/ask"),
+			HasQuery("q", "this_is_a_question"),
+		),
+		ParseEmpty,
+		func(ctx context.Context, req any) (rsp any, codedError *CodedError) {
+			return "The answer is 42.", nil
+		},
+		json.Marshal,
+		JSONContentType,
+	)
+
+	web := NewWeb(false, simple, comprehensive, complicated, combined)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)
 	}

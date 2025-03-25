@@ -84,6 +84,12 @@ func Exact(method string, path string) MatchFunc {
 	}
 }
 
+func HasQuery(key string, value string) MatchFunc {
+	return func(req *http.Request) bool {
+		return req.URL.Query().Get(key) == value
+	}
+}
+
 func ResourceWithID(method string, pathPrefixWithTailSlash string, pathSuffixWithHeadSlashNullable string) MatchFunc {
 	return func(req *http.Request) bool {
 		if req.Method != method {
