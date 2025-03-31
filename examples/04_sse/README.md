@@ -26,3 +26,8 @@ In other TTY, start client to fetch.
 ```shell
 go run client/main.go
 ```
+
+If you forced the client to stop before server finish its sending (a potential route is by press Ctrl + Z),
+the server would notify it through `ctx` in `Handle`, a special log would be printed in server side.
+
+This feature is useful when the client gone situation becomes a notable thing.

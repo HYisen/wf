@@ -45,7 +45,7 @@ func pass(ctx context.Context, ch chan<- wf.MessageEvent, ticker *time.Ticker) {
 				Lines:        []string{time.Now().String()},
 			}
 		case <-ctx.Done():
-			slog.Info("stop ticker as ctx done")
+			slog.Info("stop ticker as ctx done", "reason", ctx.Err())
 			return
 		}
 	}

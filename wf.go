@@ -320,10 +320,9 @@ func SetTimeout(duration time.Duration) {
 	timeout = duration
 }
 
-var serverContextCreator = func() (ctx context.Context, cancel context.CancelFunc) {
-	threshold := timeout
-	cause := fmt.Errorf("handler exceed timeout %v", threshold)
-	return context.WithTimeoutCause(context.Background(), threshold, cause)
+func withGlobalTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	cause := fmt.Errorf("handler exceed timeout %v", timeout)
+	return context.WithTimeoutCause(ctx, timeout, cause)
 }
 
 func (w *Web) findHandler(req *http.Request) Handler {
@@ -378,7 +377,7 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	ctx, cancel := serverContextCreator()
+	ctx, cancel := withGlobalTimeout(request.Context())
 	defer cancel()
 	ctx = AttachToken(ctx, request.Header.Get("Token"))
 	output, e := h.Handle(ctx, input)
