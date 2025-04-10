@@ -35,6 +35,24 @@ type Handler interface {
 	CanParse
 	CanHandle
 	CanResponse
+	HaveOptionalTimeout
+}
+
+// TimeoutConfig is a helper to implement HaveOptionalTimeout.
+// The default value is a no stand-alone timeout setting.
+type TimeoutConfig struct {
+	Timeout time.Duration
+}
+
+func (tc *TimeoutConfig) TimeoutOptional() time.Duration {
+	return tc.Timeout
+}
+
+// HaveOptionalTimeout is used to enable Handler have a stand-alone timeout setting.
+// The designation that Handler is HaveOptionalTimeout, rather than match it in runtime,
+// is chosen to avoid withTimeout have an any as the config parameter input.
+type HaveOptionalTimeout interface {
+	TimeoutOptional() time.Duration // zero as no stand-alone timeout
 }
 
 type CanMatch interface {
@@ -171,6 +189,7 @@ func (c *closureMatcherAndParser) Parse(data []byte, path string) (any, error) {
 
 // ClosureHandler is something that implements Handler with closures.
 type ClosureHandler struct {
+	TimeoutConfig
 	closureMatcherAndParser
 	handler     HandleFunc
 	formatter   func(output any) (data []byte, err error)
@@ -184,10 +203,16 @@ func NewClosureHandler(
 	formatter func(output any) (data []byte, err error),
 	contentType string,
 ) *ClosureHandler {
-	return &ClosureHandler{closureMatcherAndParser: closureMatcherAndParser{
-		matcher: matcher,
-		parser:  parser,
-	}, handler: handler, formatter: formatter, contentType: contentType}
+	return &ClosureHandler{
+		TimeoutConfig: TimeoutConfig{Timeout: 0},
+		closureMatcherAndParser: closureMatcherAndParser{
+			matcher: matcher,
+			parser:  parser,
+		},
+		handler:     handler,
+		formatter:   formatter,
+		contentType: contentType,
+	}
 }
 
 func (ch *ClosureHandler) Response(output HandleOutputType, writer http.ResponseWriter) {
@@ -215,8 +240,13 @@ func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleF
 	}
 }
 
+// NewServerSentEventsHandler creates a Handler for SSE.
+// Because of its long context duration in average, consider
+// use global SetTimeout or setup handler's TimeoutConfig to
+// have a much longer timeout to avoid context deadline exceeded.
 func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler StreamGenerator) *ServerSentEventsHandler {
 	return &ServerSentEventsHandler{
+		TimeoutConfig: TimeoutConfig{Timeout: 0},
 		closureMatcherAndParser: closureMatcherAndParser{
 			matcher: matcher,
 			parser:  parser,
@@ -228,6 +258,7 @@ func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler Str
 type StreamGenerator func(ctx context.Context, req any) (ch <-chan MessageEvent, codedError *CodedError)
 
 type ServerSentEventsHandler struct {
+	TimeoutConfig
 	closureMatcherAndParser
 	handler StreamGenerator
 }
@@ -320,9 +351,13 @@ func SetTimeout(duration time.Duration) {
 	timeout = duration
 }
 
-func withGlobalTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	cause := fmt.Errorf("handler exceed timeout %v", timeout)
-	return context.WithTimeoutCause(ctx, timeout, cause)
+func withTimeout(ctx context.Context, config HaveOptionalTimeout) (context.Context, context.CancelFunc) {
+	setting := timeout
+	if config.TimeoutOptional() != 0 {
+		setting = config.TimeoutOptional()
+	}
+	cause := fmt.Errorf("handler exceed timeout %v", setting)
+	return context.WithTimeoutCause(ctx, setting, cause)
 }
 
 func (w *Web) findHandler(req *http.Request) Handler {
@@ -377,7 +412,7 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	ctx, cancel := withGlobalTimeout(request.Context())
+	ctx, cancel := withTimeout(request.Context(), h)
 	defer cancel()
 	ctx = AttachToken(ctx, request.Header.Get("Token"))
 	output, e := h.Handle(ctx, input)

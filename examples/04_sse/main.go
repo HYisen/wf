@@ -16,7 +16,7 @@ const (
 )
 
 func main() {
-	wf.SetTimeout(timeoutSeconds * time.Second)
+	wf.SetTimeout(time.Second)
 	handler := wf.NewServerSentEventsHandler(
 		wf.Exact(http.MethodPost, "/events"),
 		wf.ParseEmpty,
@@ -28,6 +28,7 @@ func main() {
 			return ch, nil
 		},
 	)
+	handler.Timeout = timeoutSeconds * time.Second // override global timeout
 	web := wf.NewWeb(false, handler)
 	if err := http.ListenAndServe("localhost:8080", web); err != nil {
 		log.Fatal(err)
