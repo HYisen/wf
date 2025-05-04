@@ -3,6 +3,7 @@ package wf
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -373,6 +374,10 @@ func (w *Web) findHandler(req *http.Request) Handler {
 var allowedMethods = strings.Join([]string{http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete}, ",")
 var allowedHeaders = strings.Join([]string{"Content-Type", "Token"}, ",")
 
+// 100 ms shall be long enough to format and send any response.
+// And not too long that would make [TestOutboundTimeout] slow.
+var writeDeadlineExtension = 100 * time.Millisecond
+
 // ServeHTTP implements that in interface.
 func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if w.allowCORS {
@@ -395,6 +400,21 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	ctx, cancel := withTimeout(request.Context(), h)
+	defer cancel()
+	ctx = AttachToken(ctx, request.Header.Get("Token"))
+	rc := http.NewResponseController(writer)
+	deadline, _ := ctx.Deadline()
+	// SetWriteDeadline with an extended deadline so that the Handle timeout could be sent,
+	// rather than always being shadowed by the WriteDeadline.
+	if err := errors.Join(
+		rc.SetReadDeadline(deadline),
+		rc.SetWriteDeadline(deadline.Add(writeDeadlineExtension)),
+	); err != nil {
+		// Now that deadline must be valid, then it's OS's fault, which we cannot help.
+		panic(err)
+	}
+
 	inputData, err := io.ReadAll(request.Body)
 	if err != nil {
 		// What if it's client's fault? Maybe warn rather than error?
@@ -412,9 +432,6 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	ctx, cancel := withTimeout(request.Context(), h)
-	defer cancel()
-	ctx = AttachToken(ctx, request.Header.Get("Token"))
 	output, e := h.Handle(ctx, input)
 	if e != nil {
 		if IsUserFault(e.Code) {
