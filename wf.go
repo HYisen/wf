@@ -39,7 +39,7 @@ type Handler interface {
 	HaveOptionalTimeout
 }
 
-// TimeoutConfig is a helper to implement HaveOptionalTimeout.
+// TimeoutConfig is a helper to implement [HaveOptionalTimeout].
 // The default value is a no stand-alone timeout setting.
 type TimeoutConfig struct {
 	Timeout time.Duration
@@ -49,8 +49,8 @@ func (tc *TimeoutConfig) TimeoutOptional() time.Duration {
 	return tc.Timeout
 }
 
-// HaveOptionalTimeout is used to enable Handler have a stand-alone timeout setting.
-// The designation that Handler is HaveOptionalTimeout, rather than match it in runtime,
+// HaveOptionalTimeout is used to enable [Handler] to have a stand-alone timeout setting.
+// The designation that [Handler] is [HaveOptionalTimeout], rather than match it in runtime,
 // is chosen to avoid withTimeout have an any as the config parameter input.
 type HaveOptionalTimeout interface {
 	TimeoutOptional() time.Duration // zero as no stand-alone timeout
@@ -71,7 +71,7 @@ type CanHandle interface {
 }
 
 type CanResponse interface {
-	// Response does not return err, as we can not respond with error if Response fails.
+	// Response does not return err, as we cannot respond with error if Response fails.
 	// Now that the only thing we can do is log, we can log inside rather than pass out and do it outside.
 	Response(output HandleOutputType, writer http.ResponseWriter)
 }
@@ -81,7 +81,7 @@ type CanFormat interface {
 }
 
 type HasResponseContentType interface {
-	ResponseContentType() string // could use http.DetectContentType as default, which finds JSON as text/plain.
+	ResponseContentType() string // could use [http.DetectContentType] as default, which finds JSON as text/plain.
 }
 
 type MatchFunc func(req *http.Request) bool
@@ -188,7 +188,7 @@ func (c *closureMatcherAndParser) Parse(data []byte, path string) (any, error) {
 	return c.parser(data, path)
 }
 
-// ClosureHandler is something that implements Handler with closures.
+// ClosureHandler implements [Handler] with closures.
 type ClosureHandler struct {
 	TimeoutConfig
 	closureMatcherAndParser
@@ -241,9 +241,9 @@ func NewJSONHandler(matcher MatchFunc, requestType reflect.Type, handler HandleF
 	}
 }
 
-// NewServerSentEventsHandler creates a Handler for SSE.
-// Because of its long context duration in average, consider
-// use global SetTimeout or setup handler's TimeoutConfig to
+// NewServerSentEventsHandler creates a [Handler] for SSE.
+// Because of its long average context duration, consider
+// using global [SetTimeout] or setup handler's [TimeoutConfig] to
 // have a much longer timeout to avoid context deadline exceeded.
 func NewServerSentEventsHandler(matcher MatchFunc, parser ParseFunc, handler StreamGenerator) *ServerSentEventsHandler {
 	return &ServerSentEventsHandler{
@@ -275,7 +275,7 @@ func (h *ServerSentEventsHandler) Response(output HandleOutputType, writer http.
 	ch := output.(<-chan MessageEvent)
 	rc := http.NewResponseController(writer)
 	for me := range ch {
-		// I could, but I don't record write failure, because I haven't.
+		// I could, but I don't record write failure because I haven't.
 		if me.TypeOptional != "" {
 			_, _ = fmt.Fprintf(writer, "event: %s\n", me.TypeOptional)
 		}
@@ -291,22 +291,22 @@ func (h *ServerSentEventsHandler) Response(output HandleOutputType, writer http.
 }
 
 // MessageEvent represents a Server-Sent-Event.
-// While transmitting, if TypeOptional is empty string "",
+// While transmitting, if TypeOptional is an empty string "",
 // a typed event would be generated, otherwise unnamed message.
-// While transmitting, each item of Lines would gain prefix `data: `,
+// While transmitting, each item of Lines would gain the prefix ` data: `,
 // and every item must not include LF.
 //
-// According to the spec, when client parse MessageEvent, should concatenate lines,
+// According to the spec, when a client parses MessageEvent, it should concatenate lines,
 // inserting a newline character between each one. Trailing newlines are removed.
 //
-// ref https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
-// ref https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage
+// See https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
+// See https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage
 type MessageEvent struct {
 	TypeOptional string
 	Lines        []string
 }
 
-// Empty types used on JSONParser indicates that no data and shall use ParseEmpty.
+// Empty types used on [JSONParser] indicate that no data and shall use [ParseEmpty].
 type Empty struct {
 }
 
@@ -325,13 +325,13 @@ func (ch *ClosureHandler) ResponseContentType() string {
 	return ch.contentType
 }
 
-// Web is a helper to implements http.Handler as mux.
-// There was a Handler[RequestType,ResponseType] design,
+// Web is a helper to implement [http.Handler] as mux.
+// There was a Handler[RequestType, ResponseType] design,
 // which is good as guaranteed type consistency between its methods,
-// but failed as it's []any, not []Handler[any,any] that accepts Handler[One,Two],
-// and in runtime, the interface conversion from Handler[any,any] to Handler[One,Two] failed.
-// Once I drop the type info, it can not come back even through cast.
-// The best performance strategy could be a code generator, which is complicated to implements.
+// but failed as it's []any, not []Handler[any, any] that accepts Handler[One, Two],
+// and in runtime, the interface conversion from Handler[any, any] to Handler[One, Two] failed.
+// Once I drop the type info, it cannot come back even through cast.
+// The best performance strategy could be a code generator, which is complicated to implement.
 // Or just put the dirty transform work together as it was, which causes a lot of redundancy.
 type Web struct {
 	handlers  []Handler
@@ -344,10 +344,10 @@ func NewWeb(allowCORS bool, handlers ...Handler) *Web {
 
 var timeout = 1000 * time.Millisecond
 
-// SetTimeout setups the timeout of ctx created and passed by the framework.
-// A default value of 1000 ms would be used without any explicit invoke of this function.
-// Once ServeHTTP, which could be an instance of Web being passed to http.ListenAndServe, will NOT take effect.
-// Better to used just before the start network listening action.
+// SetTimeout sets up the timeout of ctx created and passed by the framework.
+// A default value of 1000 ms would be used without any explicit invoking of this function.
+// Once ServeHTTP, which could be an instance of [Web] being passed to [http.ListenAndServe], will NOT take effect.
+// Better to use just before the start network listening action.
 func SetTimeout(duration time.Duration) {
 	timeout = duration
 }
@@ -417,7 +417,7 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 	inputData, err := io.ReadAll(request.Body)
 	if err != nil {
-		// What if it's client's fault? Maybe warn rather than error?
+		// What if it's the client's fault? Maybe warn rather than error?
 		slog.Error("unexpected failure on read", "err", err, "req", request)
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
@@ -427,7 +427,7 @@ func (w *Web) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		slog.Warn("bad input format", "err", err, "req", request)
 		writer.WriteHeader(http.StatusBadRequest)
-		// Let it go when can not send the optional error info to client, which could be their problem.
+		// Let it go when cannot send the optional error info to a client, which could be their problem.
 		_, _ = writer.Write([]byte(fmt.Sprintf("can not parse req %v as %v", request, err)))
 		return
 	}
