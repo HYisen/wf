@@ -1,11 +1,13 @@
 package wf
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +16,61 @@ import (
 	"testing"
 	"time"
 )
+
+func OrElseV0(optional HaveOptionalTimeout, fallback time.Duration) time.Duration {
+	ret := fallback
+	if optional.TimeoutOptional() != 0 {
+		ret = optional.TimeoutOptional()
+	}
+	return ret
+}
+
+func OrElseV1(optional HaveOptionalTimeout, fallback time.Duration) time.Duration {
+	return cmp.Or(optional.TimeoutOptional(), fallback)
+}
+
+func generateTimeoutConfigs(emptyRatio float64, size int) []*TimeoutConfig {
+	random := rand.New(rand.NewPCG(0, 17))
+	var ret []*TimeoutConfig
+	for range size {
+		var tc TimeoutConfig
+		if random.Float64() > emptyRatio {
+			// I just don't want not repeatable rand.N.
+			tc.Timeout = time.Duration(random.IntN(int(1000 * time.Millisecond)))
+		}
+		ret = append(ret, &tc)
+	}
+	return ret
+}
+
+func BenchmarkOrElse(b *testing.B) {
+	inputs := generateTimeoutConfigs(0.5, 1000)
+	b.Run("v0", func(b *testing.B) {
+		for b.Loop() {
+			for _, input := range inputs {
+				OrElseV0(input, timeout)
+			}
+		}
+	})
+	b.Run("v1", func(b *testing.B) {
+		for b.Loop() {
+			for _, input := range inputs {
+				OrElseV1(input, timeout)
+			}
+		}
+	})
+}
+
+func TestOrElse(t *testing.T) {
+	inputs := generateTimeoutConfigs(0.1, 1000)
+	for _, input := range inputs {
+		want := OrElseV0(input, timeout)
+		got := OrElseV1(input, timeout)
+		if want != got {
+			t.Errorf("v0 and v1 got different result %v and %v", want, got)
+		}
+	}
+}
 
 func TestResourceWithIDs(t *testing.T) {
 	type args struct {

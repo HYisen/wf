@@ -1,6 +1,7 @@
 package wf
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -353,10 +354,7 @@ func SetTimeout(duration time.Duration) {
 }
 
 func withTimeout(ctx context.Context, config HaveOptionalTimeout) (context.Context, context.CancelFunc) {
-	setting := timeout
-	if config.TimeoutOptional() != 0 {
-		setting = config.TimeoutOptional()
-	}
+	setting := cmp.Or(config.TimeoutOptional(), timeout)
 	cause := fmt.Errorf("handler exceed timeout %v", setting)
 	return context.WithTimeoutCause(ctx, setting, cause)
 }
